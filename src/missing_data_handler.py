@@ -1,54 +1,67 @@
 from sklearn.impute import SimpleImputer
-import pandas as pd
+from sklearn.linear_model import LogisticRegression, LinearRegression
 import numpy as np
-from statsmodels.imputation import mice
-from sklearn.linear_model import LogisticRegression
+import pandas as pd
+from scipy.stats import norm
 
 class MissingDataHandler:
     def __init__(self):
         self.imputer = SimpleImputer(strategy='mean')
-        self.basl_model = None
 
     def impute_missing_data(self, data):
-        """
-        Impute missing values using mean strategy.
-        Args:
-            data (pd.DataFrame): Data to impute.
-        Returns:
-            pd.DataFrame: Data with imputed missing values.
-        """
         data_imputed = data.copy()
         numeric_columns = data.select_dtypes(include=[np.number]).columns
         data_imputed[numeric_columns] = self.imputer.fit_transform(data[numeric_columns])
         return data_imputed
 
     def heckman_correction(self, data):
-        """
-        Apply Heckman correction for MNAR.
-        Args:
-            data (pd.DataFrame): Data to correct.
-        Returns:
-            pd.DataFrame: Corrected data using Heckman.
-        """
-        # Heckman correction example (simplified using MICE)
-        imp = mice.MICEData(data)
-        data_imputed = imp.fit()
-        return data_imputed.data
+        missing_mask = data.isnull().any(axis=1)
+        X = data.fillna(data.mean())
+        probit_model = LogisticRegression()
+        probit_model.fit(X, missing_mask)
+        z_scores = probit_model.predict_proba(X)[:, 1]
+        inverse_mills = norm.pdf(z_scores) / (1 - norm.cdf(z_scores))
+        data_with_mills = data.copy()
+        data_with_mills['inverse_mills'] = inverse_mills
+        numeric_cols = data.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            if data[col].isnull().any():
+                mask = ~data[col].isnull()
+                X_obs = data_with_mills.loc[mask].drop(columns=[col, 'inverse_mills'])
+                y_obs = data_with_mills.loc[mask, col]
+                X_obs['inverse_mills'] = inverse_mills[mask]
+                correction_model = LinearRegression()
+                correction_model.fit(X_obs, y_obs)
+                missing_idx = data[col].isnull()
+                X_miss = data_with_mills.loc[missing_idx].drop(columns=[col, 'inverse_mills'])
+                X_miss['inverse_mills'] = inverse_mills[missing_idx]
+                data.loc[missing_idx, col] = correction_model.predict(X_miss)
+        return data
 
     def basl_correction(self, data):
-        """
-        Apply BASL method to handle bias in MNAR.
-        Args:
-            data (pd.DataFrame): Data to correct.
-        Returns:
-            pd.DataFrame: Corrected data using BASL.
-        """
-        X = data.drop(columns='Repayment_Label')
-        y = data['Repayment_Label'].isnull().astype(int)
-        self.basl_model = LogisticRegression()
-        self.basl_model.fit(X, y)
-        missing_pred = self.basl_model.predict_proba(X)[:, 1]
-        data['Repayment_Label'] = data.apply(
-            lambda row: row['Repayment_Label'] if not np.isnan(row['Repayment_Label']) 
-            else np.random.choice([0, 1], p=[1-missing_pred[row.name], missing_pred[row.name]]), axis=1)
-        return data
+        missing_mask = data.isnull()
+        X = data.fillna(data.mean())
+        corrected_data = data.copy()
+        for col in data.columns:
+            if data[col].isnull().any():
+                X_col = X.drop(columns=[col])
+                y_col = missing_mask[col].astype(int)
+                basl_model = LogisticRegression()
+                basl_model.fit(X_col, y_col)
+                missing_probs = basl_model.predict_proba(X_col)[:, 1]
+                missing_idx = data[col].isnull()
+                if data[col].dtype in ['int64', 'float64']:
+                    observed_values = data[col].dropna()
+                    corrected_data.loc[missing_idx, col] = np.random.choice(
+                        observed_values,
+                        size=missing_idx.sum(),
+                        p=missing_probs[missing_idx]/missing_probs[missing_idx].sum()
+                    )
+                else:
+                    value_counts = data[col].value_counts(normalize=True)
+                    corrected_data.loc[missing_idx, col] = np.random.choice(
+                        value_counts.index,
+                        size=missing_idx.sum(),
+                        p=value_counts * missing_probs[missing_idx].reshape(-1,1)
+                    )
+        return corrected_data

@@ -28,3 +28,4 @@ def visualize_results(evaluation_results, title="Model Evaluation Results"):
     plt.xlabel("Metrics")
     plt.ylabel("Scores")
     plt.show()
+    

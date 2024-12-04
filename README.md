@@ -13,11 +13,28 @@ This repository contains code and experiments for an MSc thesis on handling miss
 
 ## Setup
 1. Clone the repository:
-git clone boraegz/MSc_Thesis_Missing_Data
+   ```bash
+   git clone boraegz/MSc_Thesis_Missing_Data
+   ```
 
 2. Install dependencies:
-pip install -r requirements.txt
-
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ## Usage
 - Run the Jupyter Notebook in the `notebooks/` folder for demonstrations.
+
+## Classes and Methods
+- **DataSimulator**: Generates synthetic data and introduces missingness.
+- **MissingDataHandler**: Handles missing data using imputation, Heckman correction, and BASL.
+- **ModelTrainer**: Trains machine learning models.
+- **Evaluation**: Evaluates model performance using various metrics.
+
+## Experiments
+- Simulate a synthetic credit dataset.
+- Introduce missingness using various mechanisms.
+- Visualize missingness patterns.
+- Handle missing data using different methods.
+- Train and evaluate models.
+- Compare performance of different techniques.
