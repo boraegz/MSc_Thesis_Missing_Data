@@ -1,64 +1,50 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
+from sklearn.datasets import make_classification
 
 class DataSimulator:
-    def __init__(self, num_samples=1000, num_features=10):
-        """
-        Initialize the DataSimulator with the number of samples and features.
-        
-        Args:
-            num_samples (int): Number of samples to generate.
-            num_features (int): Number of features for each sample.
-        """
-        self.num_samples = num_samples
-        self.num_features = num_features
+    def __init__(self, n_samples=1000, n_features=10, random_state=42):
+        self.n_samples = n_samples
+        self.n_features = n_features
+        self.random_state = random_state
 
-    def generate_data(self):
-        """
-        Generate synthetic data with random values and a repayment label.
-        
-        Returns:
-            pd.DataFrame: A DataFrame containing the generated data.
-        """
-        np.random.seed(42)  # For reproducibility
-        data = np.random.rand(self.num_samples, self.num_features)
-        df = pd.DataFrame(data, columns=[f'feature_{i+1}' for i in range(self.num_features)])
-        df['Repayment_Label'] = np.random.choice([0, 1], size=self.num_samples, p=[0.3, 0.7])
-        return df
-
-    def introduce_missingness(self, data, missingness_type="MCAR", missing_rate=0.2):
-        """
-        Introduce missing values into the dataset based on the specified mechanism.
-        
-        Args:
-            data (pd.DataFrame): The input data.
-            missingness_type (str): The type of missingness ('MCAR', 'MAR', 'MNAR').
-            missing_rate (float): The proportion of data to be made missing.
-        
-        Returns:
-            pd.DataFrame: The data with missing values introduced.
-        """
-        if missingness_type == "MCAR":
-            missing_indices = np.random.rand(len(data)) < missing_rate
-            data.loc[missing_indices, 'Repayment_Label'] = np.nan
-        elif missingness_type == "MAR":
-            missing_indices = np.random.rand(len(data)) < missing_rate
-            data.loc[missing_indices, 'Repayment_Label'] = np.nan
-        elif missingness_type == "MNAR":
-            data = self.mnar_missingness(data, missing_rate)
+    def simulate_credit_data(self):
+        """Simulate a synthetic credit dataset."""
+        X, y = make_classification(
+            n_samples=self.n_samples,
+            n_features=self.n_features,
+            n_informative=8,
+            n_redundant=2,
+            random_state=self.random_state
+        )
+        columns = [f'feature_{i}' for i in range(self.n_features)] + ['target']
+        data = pd.DataFrame(np.hstack([X, y.reshape(-1, 1)]), columns=columns)
         return data
 
-    def mnar_missingness(self, data, missing_rate):
+    def introduce_missingness(self, data, mechanism='MCAR', missing_proportion=0.2, missing_col='feature_0'):
         """
-        Introduce MNAR (Missing Not at Random) missingness into the dataset.
-        
-        Args:
-            data (pd.DataFrame): The input data.
-            missing_rate (float): The proportion of data to be made missing.
-        
-        Returns:
-            pd.DataFrame: The data with MNAR missing values introduced.
+        Introduce missingness into the dataset.
+        Mechanisms: MCAR, MAR, MNAR.
         """
-        missing_indices = np.random.rand(len(data)) < missing_rate
-        data.loc[missing_indices, 'Repayment_Label'] = np.nan
+        # Set fixed seed for reproducibility
+        np.random.seed(42)  # Using a fixed seed value
+        
+        if mechanism == 'MCAR':
+            # Missing completely at random
+            mask = np.random.rand(len(data)) < missing_proportion
+            data.loc[mask, missing_col] = np.nan
+
+        elif mechanism == 'MAR':
+            # Missing at random (dependent on another feature)
+            dependent_col = 'feature_1'
+            threshold = np.percentile(data[dependent_col], (1 - missing_proportion) * 100)
+            mask = data[dependent_col] > threshold
+            data.loc[mask, missing_col] = np.nan
+
+        elif mechanism == 'MNAR':
+            # Missing not at random (dependent on itself)
+            threshold = np.percentile(data[missing_col], (1 - missing_proportion) * 100)
+            mask = data[missing_col] > threshold
+            data.loc[mask, missing_col] = np.nan
+
         return data
