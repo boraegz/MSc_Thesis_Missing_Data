@@ -25,7 +25,12 @@ class DataSimulator:
         """
         Introduce missingness into the dataset.
         Mechanisms: MCAR, MAR, MNAR.
+        For MNAR, missingness is introduced in the target variable based on its own values.
+        For MCAR and MAR, missingness is introduced in the specified feature column.
         """
+        # Create a copy of the data to avoid modifying the original
+        data = data.copy()
+        
         # Set fixed seed for reproducibility
         np.random.seed(42)  # Using a fixed seed value
         
@@ -42,9 +47,22 @@ class DataSimulator:
             data.loc[mask, missing_col] = np.nan
 
         elif mechanism == 'MNAR':
-            # Missing not at random (dependent on itself)
-            threshold = np.percentile(data[missing_col], (1 - missing_proportion) * 100)
-            mask = data[missing_col] > threshold
-            data.loc[mask, missing_col] = np.nan
+            # Missing not at random (dependent on target values)
+            # For binary target, probability of being missing depends on the value
+            prob_missing_if_0 = 0.1  # 10% chance of missing if target = 0
+            prob_missing_if_1 = 0.3  # 30% chance of missing if target = 1
+            
+            # Generate random numbers for comparison
+            random_nums = np.random.rand(len(data))
+            
+            # Create mask where probability of being missing depends on the target value
+            mask = np.where(
+                data['target'] == 1,
+                random_nums < prob_missing_if_1,  # Higher probability of missing for 1s
+                random_nums < prob_missing_if_0   # Lower probability of missing for 0s
+            )
+            
+            # Apply the mask
+            data.loc[mask, 'target'] = np.nan
 
         return data
