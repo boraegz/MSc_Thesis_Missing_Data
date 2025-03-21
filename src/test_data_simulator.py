@@ -8,6 +8,8 @@ def main():
     # Generate synthetic credit data
     print("1. Generating synthetic credit data...")
     data = simulator.simulate_credit_data()
+     # Ensure all numeric values are positive (since they are about credit data)
+    data.iloc[:, :] = data.abs()  # Convert all numeric values to their absolute values
     print("\nFirst few rows of the generated data:")
     print(data.head())
     print("\nData shape:", data.shape)
