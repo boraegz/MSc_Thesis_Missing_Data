@@ -160,4 +160,17 @@ def visualize_results(evaluation_results, title="Model Evaluation Results"):
     plt.xlabel("Metrics")
     plt.ylabel("Scores")
     plt.show()
+
+def dataset_statistics(df, name):
+    total_entries = len(df)
+    missing_values = df.isnull().sum().sum()
+    missing_percentage = (missing_values * 100 / total_entries) if df.size > 0 else 0
+
+    print(f"\n{name} Dataset:")
+    print("-" * 50)
+    print(f"Total entries: {total_entries}")
+    print(f"Total missing values: {missing_values}")
+    print(f"Missing value percentage: {missing_percentage:.2f}%")
+    print(f"Mean of numeric columns:\n{df.mean(numeric_only=True)}\n")
+    print(f"Median of numeric columns:\n{df.median(numeric_only=True)}\n")
     
