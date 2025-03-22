@@ -182,6 +182,7 @@ class MissingDataHandler:
     def basl_method(self, data: pd.DataFrame, missing_col: str, n_iter: int = 10) -> pd.DataFrame:
         """
         Perform Bias-Aware Self-Learning (BASL) for MNAR data.
+        For binary target variables, ensures predictions are rounded to 0 or 1.
 
         Parameters:
         -----------
@@ -196,16 +197,6 @@ class MissingDataHandler:
         --------
         pd.DataFrame
             The dataset with missing values imputed using BASL.
-
-        Examples:
-        --------
-        >>> df = pd.DataFrame({
-        ...     'salary': [60000, None, 80000, None],
-        ...     'age': [25, 30, 35, 40],
-        ...     'experience': [2, 5, 10, 15]
-        ... })
-        >>> handler = MissingDataHandler()
-        >>> df_imputed = handler.basl_method(df, 'salary')
         """
         # Input validation
         if not isinstance(data, pd.DataFrame):
@@ -242,10 +233,10 @@ class MissingDataHandler:
 
         # Add convergence tracking
         prev_values = None
-        tolerance = 1e-6  # Add as parameter if needed
+        tolerance = 1e-6
         
         # Self-learning loop with convergence check
-        np.random.seed(self.random_state)  # Using class-level random state
+        np.random.seed(self.random_state)
         for iteration in range(n_iter):
             model = LinearRegression()
             model.fit(features, data_copy[missing_col])
@@ -261,6 +252,9 @@ class MissingDataHandler:
                     
             data_copy[missing_col] = new_values
             prev_values = new_values
+
+        # Round the final predictions to 0 or 1 for binary target
+        data_copy[missing_col] = np.round(data_copy[missing_col]).astype(int)
 
         # Copy the imputed values back to original data
         data[missing_col] = data_copy[missing_col]
