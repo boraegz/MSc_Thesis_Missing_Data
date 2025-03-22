@@ -46,7 +46,7 @@ def preprocess_data(data: pd.DataFrame) -> pd.DataFrame:
     logger.info("Data preprocessing completed")
     return df
 
-def plot_missingness(data: pd.DataFrame) -> None:
+def plot_missingness(data: pd.DataFrame, dataset_name: str = "Dataset") -> None:
     """
     Visualize missing values in the dataset.
     
@@ -54,10 +54,12 @@ def plot_missingness(data: pd.DataFrame) -> None:
     -----------
     data : pd.DataFrame
         Input data
+    dataset_name : str
+        Name of the dataset for plot titles
     """
     plt.figure(figsize=(10, 6))
     sns.heatmap(data.isnull(), yticklabels=False, cbar=False, cmap='viridis')
-    plt.title('Missing Values Heatmap')
+    plt.title(f'Missing Values Heatmap - {dataset_name}')
     plt.show()
     
     # Missing values percentage
@@ -67,34 +69,104 @@ def plot_missingness(data: pd.DataFrame) -> None:
     if len(missing_percentages) > 0:
         plt.figure(figsize=(10, 6))
         missing_percentages.plot(kind='barh')
-        plt.title('Percentage of Missing Values by Feature')
+        plt.title(f'Percentage of Missing Values by Feature - {dataset_name}')
         plt.xlabel('Percentage')
         plt.show()
 
 def plot_feature_distributions(data: pd.DataFrame, 
+                             dataset_name: str = "Dataset",
                              numeric_cols: List[str] = None) -> None:
     """
-    Plot distributions of numeric features.
+    Plot distributions of features with appropriate visualization for different data types.
     
     Parameters:
     -----------
     data : pd.DataFrame
         Input data
+    dataset_name : str
+        Name of the dataset for plot titles
     numeric_cols : list of str, optional
         List of numeric columns to plot (default: None, uses all numeric columns)
     """
     if numeric_cols is None:
         numeric_cols = data.select_dtypes(include=[np.number]).columns
-        
+    
     n_cols = len(numeric_cols)
     n_rows = (n_cols + 2) // 3
     
     fig, axes = plt.subplots(n_rows, 3, figsize=(15, 5*n_rows))
+    fig.suptitle(f'Feature Distributions - {dataset_name}', fontsize=16, y=1.02)
     axes = axes.ravel()
     
     for idx, col in enumerate(numeric_cols):
-        sns.histplot(data=data, x=col, ax=axes[idx])
-        axes[idx].set_title(f'Distribution of {col}')
+        unique_values = data[col].nunique()
+        
+        if unique_values <= 2:  # Binary feature
+            # Create count plot for binary features
+            sns.countplot(data=data, x=col, ax=axes[idx])
+            axes[idx].set_title(f'Distribution of {col} (Binary)')
+            
+            # Add percentage labels on top of bars
+            total = len(data[col])
+            for p in axes[idx].patches:
+                percentage = f'{100 * p.get_height()/total:.1f}%'
+                axes[idx].annotate(percentage, (p.get_x() + p.get_width()/2., p.get_height()),
+                                 ha='center', va='bottom')
+            
+            # Force x-axis to show only 0 and 1
+            axes[idx].set_xticks([0, 1])
+            axes[idx].set_xticklabels(['0', '1'])
+            
+        elif unique_values <= 10:  # Categorical feature with few unique values
+            # Create count plot for categorical features
+            sns.countplot(data=data, x=col, ax=axes[idx])
+            axes[idx].set_title(f'Distribution of {col} (Categorical)')
+            
+            # Add percentage labels on top of bars
+            total = len(data[col])
+            for p in axes[idx].patches:
+                percentage = f'{100 * p.get_height()/total:.1f}%'
+                axes[idx].annotate(percentage, (p.get_x() + p.get_width()/2., p.get_height()),
+                                 ha='center', va='bottom')
+            
+        else:  # Continuous feature
+            # Calculate optimal number of bins using Freedman-Diaconis rule
+            q75, q25 = np.percentile(data[col].dropna(), [75, 25])
+            iqr = q75 - q25
+            bin_width = 2 * iqr / (len(data[col]) ** (1/3))
+            n_bins = int(np.ceil((data[col].max() - data[col].min()) / bin_width))
+            n_bins = min(max(n_bins, 30), 100)  # Keep bins between 30 and 100
+            
+            # Create histogram with KDE and adaptive bins
+            sns.histplot(data=data, x=col, ax=axes[idx], kde=True, bins=n_bins, stat='count')
+            axes[idx].set_title(f'Distribution of {col} (Continuous)')
+        
+        # Add statistics as text
+        stats_text = f'Unique values: {unique_values}\n'
+        stats_text += f'Mean: {data[col].mean():.2f}\n'
+        stats_text += f'Median: {data[col].median():.2f}\n'
+        stats_text += f'Std: {data[col].std():.2f}\n'
+        stats_text += f'Missing: {data[col].isnull().sum()}'
+        
+        axes[idx].text(0.02, 0.98, stats_text,
+                      transform=axes[idx].transAxes,
+                      verticalalignment='top',
+                      bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        # Customize axes
+        axes[idx].set_xlabel(f'{col} Values')
+        axes[idx].set_ylabel('Count')
+        axes[idx].grid(True, alpha=0.3)
+        
+        # Format x-axis to show actual values
+        if unique_values > 2:  # Only format x-axis for non-binary features
+            axes[idx].xaxis.set_major_locator(plt.MaxNLocator(10))  # Show 10 major ticks
+            axes[idx].tick_params(axis='x', rotation=45)
+        
+        # Add value range to title for continuous features
+        if unique_values > 10:
+            value_range = f'Range: [{data[col].min():.2f}, {data[col].max():.2f}]'
+            axes[idx].set_title(f'Distribution of {col} (Continuous)\n{value_range}')
         
     # Hide empty subplots
     for idx in range(n_cols, len(axes)):
@@ -103,7 +175,7 @@ def plot_feature_distributions(data: pd.DataFrame,
     plt.tight_layout()
     plt.show()
 
-def create_correlation_matrix(data: pd.DataFrame) -> None:
+def create_correlation_matrix(data: pd.DataFrame, dataset_name: str = "Dataset") -> None:
     """
     Create and plot correlation matrix for numeric features.
     
@@ -111,13 +183,15 @@ def create_correlation_matrix(data: pd.DataFrame) -> None:
     -----------
     data : pd.DataFrame
         Input data
+    dataset_name : str
+        Name of the dataset for plot title
     """
     numeric_data = data.select_dtypes(include=[np.number])
     corr_matrix = numeric_data.corr()
     
     plt.figure(figsize=(12, 8))
     sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0)
-    plt.title('Correlation Matrix')
+    plt.title(f'Correlation Matrix - {dataset_name}')
     plt.show()
 
 def split_data(X: pd.DataFrame, y: pd.Series, 
