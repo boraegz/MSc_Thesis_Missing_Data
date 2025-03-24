@@ -4,12 +4,17 @@
 This repository contains code and experiments for an MSc thesis on handling missing data in credit scoring, focusing on MCAR, MAR, and MNAR mechanisms.
 
 ## Repository Structure
-- `data/`: Placeholder for raw and processed datasets.
-- `notebooks/`: Jupyter notebooks demonstrating the workflow.
-- `src/`: Source code for all classes and utility functions.
-- `tests/`: Unit tests for validating the code.
-- `requirements.txt`: Python dependencies.
-- `README.md`: Instructions for usage.
+- `data/`: Contains raw real dataset (not being used)
+- `notebooks/`: Jupyter notebooks for experiments
+  - `data_exploration.ipynb`: Exploratory data analysis
+  - `missing_data_experiments.ipynb`: Main experiments with different missing data handling methods
+- `src/`: Source code
+  - `missing_data_handler.py`: Implementation of missing data handling methods
+  - `model.py`: Credit scoring model implementation
+  - `evaluation.py`: Model evaluation metrics
+  - `utils.py`: Utility functions for visualization and data processing
+  - `data_simulator.py`: Data generation and missingness introduction
+- `requirements.txt`: Python dependencies
 
 ## Setup
 1. Clone the repository:
@@ -17,24 +22,48 @@ This repository contains code and experiments for an MSc thesis on handling miss
    git clone boraegz/MSc_Thesis_Missing_Data
    ```
 
-2. Install dependencies:
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
 ## Usage
-- Run the Jupyter Notebook in the `notebooks/` folder for demonstrations.
+1. Start Jupyter Notebook:
+   ```bash
+   jupyter notebook
+   ```
 
-## Classes and Methods
-- **DataSimulator**: Generates synthetic data and introduces missingness.
-- **MissingDataHandler**: Handles missing data using imputation, Heckman correction, and BASL.
-- **ModelTrainer**: Trains machine learning models.
-- **Evaluation**: Evaluates model performance using various metrics.
+2. Run notebooks in order:
+   - First run `data_exploration.ipynb` to understand the data
+   - Then run `missing_data_experiments.ipynb` for the main experiments
+
+## Key Components
+- **MissingDataHandler**: Implements various missing data handling methods:
+  - Mean/Median imputation
+  - Heckman correction
+  - BASL (Bias-Aware Self-Learning)
+- **CreditScoringModel**: Random Forest-based credit scoring model
+- **ModelEvaluator**: Comprehensive model evaluation metrics
+- **DataSimulator**: Generates synthetic credit data with controlled missingness
 
 ## Experiments
-- Simulate a synthetic credit dataset.
-- Introduce missingness using various mechanisms.
-- Visualize missingness patterns.
-- Handle missing data using different methods.
-- Train and evaluate models.
-- Compare performance of different techniques.
+1. Data Exploration:
+   - Analyze missingness patterns
+   - Visualize feature distributions
+   - Examine correlations
+
+2. Missing Data Handling:
+   - Compare different imputation methods
+   - Evaluate impact on model performance
+   - Analyze bias in predictions
+
+3. Model Evaluation:
+   - Performance metrics across methods
+   - Feature importance analysis
+   - Bias detection and mitigation
