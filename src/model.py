@@ -170,7 +170,7 @@ class CreditScoringModel:
         metrics = ["accuracy", "precision", "recall", "f1-score"]
 
         # Extract class labels properly (handle both integer and string keys)
-        valid_classes = [str(cls) for cls in class_report.keys() if isinstance(cls, (str, int)) and str(cls).isdigit()]
+        valid_classes = [cls for cls in class_report.keys() if cls.replace('.', '', 1).isdigit()]
 
         # Compute metrics correctly
         metric_values = [accuracy]  # Start with accuracy
