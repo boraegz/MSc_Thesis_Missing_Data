@@ -3,8 +3,11 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from typing import Tuple, Dict, Any
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
 import logging
+from typing import Tuple, Dict, Any
 
 class CreditScoringModel:
     """
@@ -18,7 +21,7 @@ class CreditScoringModel:
     >>> predictions = model.predict(X_test)
     """
     
-    def __init__(self, random_state: int = 42):
+    def __init__(self, random_state: int = 42, class_weight: str = 'balanced'):
         """
         Initialize the CreditScoringModel.
         
@@ -26,10 +29,12 @@ class CreditScoringModel:
         -----------
         random_state : int, optional
             Random seed for reproducibility (default: 42)
+        class_weight : str, optional
+            Class weight for handling imbalanced classes, default is 'balanced'
         """
         self.logger = logging.getLogger(__name__)
         self.random_state = random_state
-        self.model = RandomForestClassifier(random_state=self.random_state)
+        self.model = RandomForestClassifier(random_state=self.random_state, class_weight=class_weight)
         self.scaler = StandardScaler()
         
     def prepare_data(self, data: pd.DataFrame, target: str, 
@@ -61,14 +66,14 @@ class CreditScoringModel:
         y = data[target]
         
         # Handle categorical variables
-        X = pd.get_dummies(X)
+        X = pd.get_dummies(X, drop_first=True)  # drop_first to avoid multicollinearity
         
-        # Split the data
+        # Split the data into training and test sets
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=self.random_state
+            X, y, test_size=test_size, random_state=self.random_state, stratify=y
         )
         
-        # Scale the features
+        # Scale the features (for continuous variables)
         X_train = pd.DataFrame(
             self.scaler.fit_transform(X_train),
             columns=X_train.columns,
@@ -147,4 +152,53 @@ class CreditScoringModel:
         if not hasattr(self.model, 'feature_importances_'):
             raise AttributeError("Model has not been trained yet")
             
-        return dict(zip(self.model.feature_names_in_, self.model.feature_importances_)) 
+        return dict(zip(self.model.feature_names_in_, self.model.feature_importances_))
+
+    
+    def evaluate_model(self, X_train: pd.DataFrame, X_test: pd.DataFrame, y_train: pd.Series, y_test: pd.Series) -> Dict[str, Any]:
+        """
+        Trains the model, makes predictions, and evaluates its performance.
+        
+        Parameters:
+        -----------
+        X_train : pd.DataFrame
+            The training features
+        X_test : pd.DataFrame
+            The test features
+        y_train : pd.Series
+            The training target
+        y_test : pd.Series
+            The test target
+        
+        Returns:
+        --------
+        dict
+            A dictionary containing performance metrics and confusion matrix
+        """
+        # Train the model
+        self.train(X_train, y_train)
+        
+        # Predict on the test set
+        predictions = self.predict(X_test)
+        predictions_proba = self.predict_proba(X_test)
+    
+        # Calculate metrics
+        accuracy = accuracy_score(y_test, predictions)
+        class_report = classification_report(y_test, predictions, output_dict=True)
+        cm = confusion_matrix(y_test, predictions)
+        
+        # Store results
+        results = {
+            "accuracy": accuracy,
+            "classification_report": class_report,
+            "confusion_matrix": cm
+        }
+        
+        # Optionally: display confusion matrix as heatmap
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['No Loan', 'Loan'], yticklabels=['No Loan', 'Loan'])
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        plt.title('Confusion Matrix')
+        plt.show()
+        
+        return results
