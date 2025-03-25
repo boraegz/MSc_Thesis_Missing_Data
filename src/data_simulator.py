@@ -78,7 +78,8 @@ class DataSimulator:
             The dataset with an additional 'accepted' column indicating acceptance status.
         """
         data = data.copy()
-        data['accepted'] = data['feature_0'] < threshold  # Accept if feature_0 is less than the threshold
+        # Accept the application if 'feature_0' is less than the threshold
+        data['accepted'] = data['feature_0'] < threshold  
         return data
 
     def introduce_missingness(self, data, mechanism='MCAR', missing_proportion=0.2, missing_col='feature_0'):
@@ -92,7 +93,7 @@ class DataSimulator:
         mechanism : str
             The missing data mechanism ('MCAR', 'MAR', 'MNAR').
         missing_proportion : float
-            Proportion of missing values to introduce.
+            Proportion of missing values to introduce (used in MCAR and MAR).
         missing_col : str
             Column to be affected by missingness (for MCAR and MAR).
 
@@ -104,24 +105,37 @@ class DataSimulator:
         data = data.copy()
 
         if mechanism == 'MCAR':
-            # Missing Completely at Random: randomly select rows to set the missing_col to NaN
+            # Missing Completely at Random: randomly select rows to set the specified column to NaN
             mask = np.random.rand(len(data)) < missing_proportion
             data.loc[mask, missing_col] = np.nan
 
         elif mechanism == 'MAR':
-            # Missing At Random: missingness in missing_col depends on another feature (e.g., feature_1)
+            # Missing At Random: missingness in missing_col depends on another observed feature (e.g., feature_1)
             dependent_col = 'feature_1'
-            threshold = np.percentile(data[dependent_col], (1 - missing_proportion) * 100)
-            mask = data[dependent_col] > threshold
+            threshold_val = np.percentile(data[dependent_col], (1 - missing_proportion) * 100)
+            mask = data[dependent_col] > threshold_val
             data.loc[mask, missing_col] = np.nan
 
         elif mechanism == 'MNAR':
-            # Missing Not At Random: simulate missing target values for rejected applications.
-            # Ensure that the acceptance loop has been applied to have an 'accepted' column.
-            if 'accepted' not in data.columns:
-                raise ValueError("For MNAR mechanism, the 'accepted' column is required. Please run acceptance_loop() first.")
-            # For rejected samples (accepted == False), introduce missingness in the target column at a 30% chance.
-            mask = (~data['accepted']) & (np.random.rand(len(data)) < 0.3)
+            # Missing Not At Random: missingness in the target variable is linked to both an observed feature (feature_1)
+            # and the target value itself.
+            # For example:
+            # - If feature_1 is below 1 (indicating high risk) and target == 1 (default), 
+            #   assign a higher probability (e.g., 30%) for target to be missing.
+            # - If feature_1 is below 1 and target == 0, assign a lower probability (e.g., 10%).
+            # - If feature_1 is 1 or above, do not induce missingness.
+            # Note: This simulates a situation where missingness is not entirely random,
+            # but related to the unobserved risk (target) in high-risk regions.
+            mask = np.zeros(len(data), dtype=bool)
+            # Process only rows where feature_1 < 1
+            condition = data['feature_1'] < 1
+            # For high risk (target == 1), missing probability is higher
+            high_risk = (data['target'] == 1) & condition
+            mask[high_risk] = np.random.rand(np.sum(high_risk)) < 0.3
+            # For low risk (target == 0) in high-risk region, missing probability is lower
+            low_risk = (data['target'] == 0) & condition
+            mask[low_risk] = np.random.rand(np.sum(low_risk)) < 0.1
+            # For rows where feature_1 >= 1, no missingness is introduced (target remains observed)
             data.loc[mask, 'target'] = np.nan
 
         else:
