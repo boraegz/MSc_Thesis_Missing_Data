@@ -1,0 +1,23 @@
+# Experiment Configuration
+
+# Random Seed for Reproducibility
+random_state: 42
+
+# Dataset Parameters (Synthetic Oracle Data)
+dataset:
+  n_samples: 10000
+  n_features: 20
+  n_informative: 10
+  n_redundant: 5
+  n_repeated: 0
+  n_classes: 2
+  weights: [0.7, 0.3]  # Class imbalance (0: Repaid, 1: Default)
+  noise: 0.1
+  flip_y: 0.05
+
+# Missingness Parameters
+missingness:
+  mechanism: "mnar_rejection"  # Options: mcar, mar, mnar_latent, mnar_rejection
+  missing_rate: 0.3            # Fraction of data to "reject" (make missing)
+  logistic_slope: 1.0          # Steepness of the rejection curve (for MNAR)
+  logistic_intercept: 0.0      # Threshold adjustment
