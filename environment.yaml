@@ -1,0 +1,25 @@
+name: thesis_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - statsmodels
+  - xgboost
+  - lightgbm
+  - pytorch::pytorch
+  - matplotlib
+  - seaborn
+  - jupyter
+  - ipykernel
+  - missingno
+  - fancyimpute
+  - black
+  - flake8
+  - pre-commit
+  - pip
+  - pip:
+      - joblib

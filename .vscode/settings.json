@@ -1,0 +1,14 @@
+{
+    "python.defaultInterpreterPath": "~/micromamba/envs/thesis_env/bin/python",
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length",
+        "88"
+    ],
+    "editor.formatOnSave": true,
+    "jupyter.askForKernelRestart": false,
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.ipynb_checkpoints": true
+    }
+}
