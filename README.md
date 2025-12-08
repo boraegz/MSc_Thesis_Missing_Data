@@ -1,68 +1,89 @@
-# Credit Scoring with Missing Data
+# MSc Thesis: Missing Data & Reject Inference in Credit Scoring
 
-## Overview
-This repository contains code and experiments for an MSc thesis on handling missing data in credit scoring, focusing on MCAR, MAR, and MNAR mechanisms.
+This repository contains the implementation for the MSc Thesis focusing on **Missing Data solutions** and **Reject Inference** techniques in Credit Scoring. It provides a modular framework for simulating credit data, injecting missingness (MCAR, MAR, MNAR), applying correction methods, and evaluating their effectiveness.
 
-## Repository Structure
-- `data/`: Contains raw real dataset (not being used)
-- `notebooks/`: Jupyter notebooks for experiments
-  - `data_exploration.ipynb`: Exploratory data analysis
-  - `missing_data_experiments.ipynb`: Main experiments with different missing data handling methods
-- `src/`: Source code
-  - `missing_data_handler.py`: Implementation of missing data handling methods
-  - `model.py`: Credit scoring model implementation
-  - `evaluation.py`: Model evaluation metrics
-  - `utils.py`: Utility functions for visualization and data processing
-  - `data_simulator.py`: Data generation and missingness introduction
-- `requirements.txt`: Python dependencies
+## 🚀 Project Overview
 
-## Setup
-1. Clone the repository:
-   ```bash
-   git clone boraegz/MSc_Thesis_Missing_Data
-   ```
+The goal is to evaluate how well different strategies recover the "Oracle" (Ground Truth) performance when a significant portion of the target labels (Default/Repay) is missing due to rejection.
 
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### Key Components:
+1.  **Data Simulation (`src/data`)**: Generates synthetic credit application data (Oracle) and injects missingness based on various mechanisms (MCAR, Latent-MNAR, Policy-based Rejection).
+2.  **Imputation & Correction (`src/imputation`, `src/reject_inference`)**:
+    *   **Baseline**: Mean, Mode, Zero Imputation.
+    *   **Advanced**: MICE (Multiple Imputation by Chained Equations), MissForest.
+    *   **Reject Inference**: Inverse Probability Weighting (IPW), Augmentation (Self-training).
+3.  **Experimentation (`src/experiments.py`)**: A pipeline to orchestrate the generation -> corruption -> correction -> evaluation loop.
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 📂 Project Structure
 
-## Usage
-1. Start Jupyter Notebook:
-   ```bash
-   jupyter notebook
-   ```
+```
+├── configs/
+│   └── experiment_config.yaml  # Configuration for Dataset and Mechanisms
+├── notebooks/
+│   ├── walkthrough.ipynb       # Interactive demo of the project steps
+│   └── ...
+├── src/
+│   ├── data/                   # Data Generation & Missingness Logic
+│   ├── imputation/             # Imputation Classes (MICE, MissForest)
+│   ├── reject_inference/       # Reject Inference Classes (IPW, Augmentation)
+│   ├── evaluation.py           # Metric calculations (AUC, Brier)
+│   ├── experiments.py          # Pipeline orchestration
+│   └── utils.py                # Helper functions (Seeding, Config loading)
+├── tests/                      # Unit tests for all modules
+├── run_experiments.py          # Main execution script
+└── environment.yaml            # Conda environment definition
+```
 
-2. Run notebooks in order:
-   - First run `data_exploration.ipynb` to understand the data
-   - Then run `missing_data_experiments.ipynb` for the main experiments
+## 🛠 Installation
 
-## Key Components
-- **MissingDataHandler**: Implements various missing data handling methods:
-  - Mean/Median imputation
-  - Heckman correction
-  - BASL (Bias-Aware Self-Learning)
-- **CreditScoringModel**: Random Forest-based credit scoring model
-- **ModelEvaluator**: Comprehensive model evaluation metrics
-- **DataSimulator**: Generates synthetic credit data with controlled missingness
+This project uses **Micromamba** (or Conda) for dependency management.
 
-## Experiments
-1. Data Exploration:
-   - Analyze missingness patterns
-   - Visualize feature distributions
-   - Examine correlations
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/boraegz/MSc_Thesis_Missing_Data.git
+    cd MSc_Thesis_Missing_Data
+    ```
 
-2. Missing Data Handling:
-   - Compare different imputation methods
-   - Evaluate impact on model performance
-   - Analyze bias in predictions
+2.  **Create the environment**:
+    ```bash
+    micromamba create -f environment.yaml
+    micromamba activate thesis_env
+    ```
 
-3. Model Evaluation:
-   - Performance metrics across methods
-   - Bias detection and mitigation
+3.  **Verify the setup**:
+    ```bash
+    python verify_env.py
+    ```
+
+## 🏃 Usage
+
+### 1. Interactive Walkthrough
+Open `notebooks/walkthrough.ipynb` in VSCode to interactively run the Data Generation and Imputation steps and visualize the output.
+
+### 2. Run Experiments
+To run the full suite of experiments (looping through MCAR/MNAR mechanisms and different missing rates):
+
+```bash
+python run_experiments.py
+```
+
+This will save the results to `results/experiment_results.csv`.
+
+### 3. Run Unit Tests
+To ensure everything is working correctly:
+
+```bash
+pytest tests/
+```
+
+## 🔬 Methodology
+
+| Component | Methods Implemented |
+|-----------|---------------------|
+| **Mechanisms** | MCAR, MAR, MNAR (Latent), MNAR (Rejection Policy) |
+| **Imputation** | Mean, Mode, Zero, MICE, MissForest |
+| **Reject Inference** | Reweighting (IPW), Augmentation (Parceling) |
+| **Evaluation** | AUC-ROC, Brier Score, Accuracy, F1 |
+
+## 👤 Author
+**Bora Eguz** (boraegz@gmail.com)
