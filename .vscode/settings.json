@@ -1,5 +1,9 @@
 {
-    "python.defaultInterpreterPath": "~/micromamba/envs/thesis_env/bin/python",
+    "python.defaultInterpreterPath": "/Users/boraeguz/micromamba/envs/thesis_env/bin/python",
+    "jupyter.kernels.excludePythonEnvironments": [
+        "${workspaceFolder}/venv/bin/python",
+        "/usr/bin/python3"
+    ],
     "python.formatting.provider": "black",
     "python.formatting.blackArgs": [
         "--line-length",

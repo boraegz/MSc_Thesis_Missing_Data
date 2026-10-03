@@ -1,1 +1,14 @@
 data/raw/*
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Environments (use micromamba thesis_env, see environment.yaml)
+venv/
+.venv/
+
+# macOS
+.DS_Store
