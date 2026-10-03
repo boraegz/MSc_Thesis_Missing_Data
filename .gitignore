@@ -1,1 +1,27 @@
-data/raw/*
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+env/
+thesis-env/
+
+# OS / editor
+.DS_Store
+.idea/
+
+# Data and generated results (regenerate with run_experiments.py)
+data/raw/
+data/processed/
+results/raw/
+results/*.csv
+results/*.parquet
+
+# Keep empty folders
+!data/.gitkeep
+!results/.gitkeep

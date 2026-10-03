@@ -1,70 +1,95 @@
-import numpy as np
-import pandas as pd
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.linear_model import LogisticRegression
-from sklearn.utils.validation import check_is_fitted
+"""Label-assignment reject inference: fuzzy augmentation and parceling."""
+from __future__ import annotations
 
-class Augmentation(BaseEstimator, ClassifierMixin):
+from typing import Optional
+
+import numpy as np
+from sklearn.base import ClassifierMixin, clone
+
+from src.data.simulation import TrainingView
+from src.reject_inference.base import RejectInferenceMethod
+
+
+def _accepts_model_pd(data: TrainingView, learner: ClassifierMixin) -> np.ndarray:
+    """Fit on accepts, return predicted PD for every applicant."""
+    acc = data.accepted
+    model = clone(learner).fit(data.X[acc], data.y[acc].astype(int))
+    return model.predict_proba(data.X)[:, 1]
+
+
+class FuzzyAugmentation(RejectInferenceMethod):
+    """Add each reject twice, as default and as non-default, weighted by its PD.
+
+    The PD of a reject comes from a model fit on accepts. Each reject enters
+    the final training set as (x, 1) with weight p and as (x, 0) with weight
+    1 - p. Assumes the accepts model extrapolates correctly to rejects, i.e.
+    MAR given X.
+
+    Parameters
+    ----------
+    learner : sklearn classifier, optional
+        Scorecard model (also used as the accepts model).
     """
-    Implements Augmentation (also known as Parceling or Self-training) for Reject Inference.
-    
-    1. Train base_estimator on Accepted (Labeled) samples.
-    2. Predict labels (or probabilities) for Rejected (Unlabeled) samples.
-    3. Combine Accepted + Rejected (with inferred labels) into an Augmented dataset.
-    """
-    def __init__(self, base_estimator=None, soft_labels: bool = False):
-        self.base_estimator = base_estimator if base_estimator is not None else LogisticRegression()
-        self.soft_labels = soft_labels
-        self.estimator_ = None
-        
-    def fit(self, X, y_observed, mask):
-        """
-        Fits the augmentation model on accepted data.
-        
-        Args:
-            X: Features (n_samples, n_features)
-            y_observed: Target with NaNs for rejected.
-            mask: 1=Accepted, 0=Rejected
-        """
-        self.estimator_ = self.base_estimator
-        
-        X_acc = X[mask == 1]
-        y_acc = y_observed[mask == 1]
-        
-        self.estimator_.fit(X_acc, y_acc)
+
+    name = "fuzzy_augmentation"
+
+    def fit(self, data: TrainingView, rng: np.random.Generator) -> "FuzzyAugmentation":
+        p = _accepts_model_pd(data, self.learner)
+        acc, rej = data.accepted, data.rejected
+        X = np.vstack([data.X[acc], data.X[rej], data.X[rej]])
+        y = np.r_[data.y[acc], np.ones(rej.sum()), np.zeros(rej.sum())]
+        w = np.r_[np.ones(acc.sum()), p[rej], 1 - p[rej]]
+        self._fit_learner(X, y, sample_weight=w)
+        self.diagnostics_ = {"n_train": int(len(data.s)), "mean_pd_rejects": float(p[rej].mean())}
         return self
-        
-    def transform(self, X, y_observed, mask):
-        """
-        Returns the Augmented Dataset (X, y_augmented).
-        
-        Args:
-            X: Features
-            y_observed: Target with NaNs
-            mask: 1=Accepted, 0=Rejected
-            
-        Returns:
-            X_aug: Same as X
-            y_aug: y_observed with NaNs filled by model predictions
-        """
-        check_is_fitted(self.estimator_)
-        
-        X_rej = X[mask == 0]
-        
-        if len(X_rej) == 0:
-            return X, y_observed
-            
-        # Predict labels for rejected
-        if self.soft_labels:
-            # For soft labels, we might use probabilities.
-            # But standard classifiers expect valid y labels. 
-            # This requires downstream models to handle soft targets, which is rare in standard sklearn.
-            # Keeping it simple: Hard labels for now unless requested.
-            y_rej_pred = self.estimator_.predict(X_rej)
-        else:
-            y_rej_pred = self.estimator_.predict(X_rej)
-            
-        y_aug = y_observed.copy()
-        y_aug[mask == 0] = y_rej_pred
-        
-        return X, y_aug
+
+
+class Parceling(RejectInferenceMethod):
+    """Assign rejects random labels using bad rates of accepts in the same score band.
+
+    1. Fit a model on accepts and score all applicants.
+    2. Cut the score into ``n_bands`` quantile bands (on all applicants).
+    3. In each band, draw each reject's label as Bernoulli(min(1, k * b)),
+       where b is the band's bad rate among accepts and k the inflation factor.
+       Bands without accepts borrow the bad rate of the nearest band with accepts.
+
+    ``inflation > 1`` encodes the practitioner's belief that rejects are riskier
+    than similar accepts (a manual MNAR adjustment).
+
+    Parameters
+    ----------
+    learner : sklearn classifier, optional
+    n_bands : int
+        Number of score bands.
+    inflation : float
+        Multiplier k on band bad rates for rejects.
+    """
+
+    name = "parceling"
+
+    def __init__(self, learner: Optional[ClassifierMixin] = None, n_bands: int = 10, inflation: float = 1.0) -> None:
+        super().__init__(learner)
+        self.n_bands = n_bands
+        self.inflation = inflation
+
+    def fit(self, data: TrainingView, rng: np.random.Generator) -> "Parceling":
+        p = _accepts_model_pd(data, self.learner)
+        edges = np.quantile(p, np.linspace(0, 1, self.n_bands + 1)[1:-1])
+        band = np.searchsorted(edges, p, side="right")
+        acc, rej = data.accepted, data.rejected
+
+        band_rate = np.full(self.n_bands, np.nan)
+        for b in range(self.n_bands):
+            in_b = acc & (band == b)
+            if in_b.any():
+                band_rate[b] = data.y[in_b].mean()
+        known = np.flatnonzero(~np.isnan(band_rate))
+        for b in np.flatnonzero(np.isnan(band_rate)):
+            band_rate[b] = band_rate[known[np.argmin(np.abs(known - b))]]
+
+        prob = np.minimum(1.0, self.inflation * band_rate[band[rej]])
+        y = data.y.copy()
+        y[rej] = (rng.random(rej.sum()) < prob).astype(float)
+        self._fit_learner(data.X, y)
+        self.diagnostics_ = {"n_train": int(len(y)), "assigned_bad_rate_rejects": float(y[rej].mean())}
+        return self

@@ -1,23 +1,45 @@
-# Experiment Configuration
+# Main synthetic study: label selection (reject inference) under MAR and MNAR.
+# One "cell" = one combination of the grid values below; every cell is
+# replicated n_replications times with fresh applicants.
 
-# Random Seed for Reproducibility
-random_state: 42
+study:
+  name: synthetic_main
+  base_seed: 2026
+  n_replications: 20
+  n_jobs: -1            # parallel workers (-1 = all cores)
 
-# Dataset Parameters (Synthetic Oracle Data)
-dataset:
-  n_samples: 10000
-  n_features: 20
-  n_informative: 10
-  n_redundant: 5
-  n_repeated: 0
-  n_classes: 2
-  weights: [0.7, 0.3]  # Class imbalance (0: Repaid, 1: Default)
-  noise: 0.1
-  flip_y: 0.05
+population:             # through-the-door applicants
+  n_features: 10
+  n_informative: 6
+  feature_corr: 0.3
+  default_rate: 0.20
+  signal_sd: 1.0        # sd of the true risk index; Oracle logistic AUC about 0.81
+  nonlinear_share: 0.3  # share of risk the logistic scorecard cannot represent
 
-# Missingness Parameters
-missingness:
-  mechanism: "mnar_rejection"  # Options: mcar, mar, mnar_latent, mnar_rejection
-  missing_rate: 0.3            # Fraction of data to "reject" (make missing)
-  logistic_slope: 1.0          # Steepness of the rejection curve (for MNAR)
-  logistic_intercept: 0.0      # Threshold adjustment
+samples:
+  n_train: 10000        # historical applicants (labels censored by the policy)
+  n_test: 10000         # Oracle test set (all labels, evaluation only)
+
+grid:                   # the dials of the past acceptance policy
+  rho: [0.0, 0.3, 0.6, 0.9]             # MNAR strength (0 = MAR)
+  acceptance_rate: [0.3, 0.5, 0.7]
+  exclusion_restriction: [true, false]  # is the acceptance shifter recorded as Z?
+
+policy:
+  z_strength: 1.0       # effect of the acceptance shifter W (recorded as Z if the restriction holds)
+  policy_noise_sd: 0.5  # pure noise in past decisions (overrides etc.)
+
+learner: logistic       # scorecard model for every method: logistic | gbm
+
+methods:                # 'oracle' (all labels) is always fitted as the upper reference
+  - name: accepts_only
+  - name: rejects_as_bad
+  - name: ipw
+  - name: fuzzy_augmentation
+  - name: parceling
+    params: {n_bands: 10, inflation: 1.0}
+
+evaluation:
+  approval_rate: 0.5    # for the bad rate among approved applicants
+
+output_dir: results/raw

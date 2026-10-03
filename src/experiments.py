@@ -1,186 +1,174 @@
-import pandas as pd
-import numpy as np
-import xgboost as xgb
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from typing import Dict, List, Optional
+"""Run the simulation study: grid of policy settings x replications x methods."""
+from __future__ import annotations
+
+import itertools
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List
 
-# Import our modules
-from src.data.data_generator import DataGenerator
-from src.imputation.baseline_imputer import BaselineImputer
-from src.imputation.mice_imputer import MiceImputer
-from src.imputation.missforest_imputer import MissForestImputer
-from src.reject_inference.reweighting import InverseProbabilityWeighter
-from src.reject_inference.augmentation import Augmentation
-from src.evaluation import Evaluator
+import numpy as np
+import pandas as pd
+import yaml
+from joblib import Parallel, delayed
+from sklearn.base import clone
 
-class ExperimentRunner:
+from src.data.simulation import ExperimentData, PolicyConfig, PopulationConfig, simulate_experiment
+from src.evaluation import compute_metrics
+from src.reject_inference import build_method, make_learner
+from src.utils import PROJECT_ROOT, make_rng
+
+ORACLE = "oracle"
+
+
+def grid_cells(config: Dict[str, Any]) -> List[PolicyConfig]:
+    """All policy settings (cells) defined by the config grid, in a fixed order."""
+    g = config["grid"]
+    fixed = config.get("policy", {})
+    return [
+        PolicyConfig(rho=rho, acceptance_rate=alpha, exclusion_restriction=bool(er), **fixed)
+        for rho, alpha, er in itertools.product(g["rho"], g["acceptance_rate"], g["exclusion_restriction"])
+    ]
+
+
+def evaluate_method(
+    spec: Dict[str, Any],
+    data: ExperimentData,
+    learner_kind: str,
+    approval_rate: float,
+    rng: np.random.Generator,
+) -> Dict[str, Any]:
+    """Fit one reject inference method and score it on the Oracle test set.
+
+    The method receives only ``data.train`` (the censored historical sample);
+    ``data.y_train_oracle`` is never passed on, so the true labels of rejected
+    applicants cannot leak into training.
     """
-    Orchestrates the running of experiments across different missingness mechanisms and correction methods.
+    method = build_method(spec["name"], learner_kind, spec.get("params"))
+    t0 = time.perf_counter()
+    method.fit(data.train, rng)
+    fit_seconds = time.perf_counter() - t0
+    metrics = compute_metrics(data.y_test, method.predict_proba(data.X_test), approval_rate)
+    diag = {f"diag_{k}": v for k, v in method.diagnostics_.items()}
+    return {"method": spec["name"], "fit_seconds": fit_seconds, **metrics, **diag}
+
+
+def evaluate_oracle(data: ExperimentData, learner_kind: str, approval_rate: float) -> Dict[str, Any]:
+    """Upper reference: the same learner fit on all true labels of the historical sample."""
+    t0 = time.perf_counter()
+    model = clone(make_learner(learner_kind)).fit(data.train.X, data.y_train_oracle)
+    fit_seconds = time.perf_counter() - t0
+    metrics = compute_metrics(data.y_test, model.predict_proba(data.X_test)[:, 1], approval_rate)
+    return {"method": ORACLE, "fit_seconds": fit_seconds, **metrics}
+
+
+def run_replication(config: Dict[str, Any], cell_id: int, policy: PolicyConfig, replication: int) -> List[Dict[str, Any]]:
+    """Simulate one replication of one cell and evaluate the Oracle and every method.
+
+    All methods see the same simulated data, so method comparisons are paired.
+
+    Returns
+    -------
+    list of dict
+        One row per method with cell settings, metrics and diagnostics.
     """
-    def __init__(self, config: Dict):
-        self.config = config
-        self.evaluator = Evaluator()
-        self.results = []
-        
-    def run_pipeline(self, mechanism: str, missing_rate: float, method: str):
-        """
-        Runs a single experiment pipeline.
-        
-        Args:
-            mechanism: 'mcar', 'mar', 'mnar_rejection'
-            missing_rate: float
-            method: 'complete_case', 'mean', 'mice', 'missforest', 'reweighting', 'augmentation'
-        """
-        # 1. Generate Data (Fresh seed for each run? Or same data?)
-        # Ideally, we want same data for all methods to be comparable.
-        # But we might run multiple seeds later.
-        gen = DataGenerator(self.config)
-        
-        # Override config for this run
-        gen.config['missingness']['mechanism'] = mechanism
-        gen.config['missingness']['missing_rate'] = missing_rate
-        
-        # Generate Oracle
-        data = gen.generate_oracle_data()
-        data_miss = gen.introduce_missingness(data)
-        
-        X_full = data_miss['X'] # Scaled
-        y_full = data_miss['y_oracle'] # True labels
-        y_obs = data_miss['y_observed'] # With NaNs
-        mask = data_miss['mask'] # 1=Obs, 0=Miss
-        
-        # 2. Split Train/Test
-        # IMPORTANT: Missingness is usually on Training data (historical rejected).
-        # We want to test on a Hold-Out set that is fully labeled (Oracle) to check performance recovery.
-        # In real life, we only have observed data. But for simulation, we verify against P(Y=1|X) or Y_test.
-        
-        # Stratified split based on y_full to ensure balance
-        X_train, X_test, y_train_full, y_test, mask_train, mask_test = train_test_split(
-            X_full, y_full, mask, test_size=0.3, random_state=gen.seed, stratify=y_full
-        )
-        
-        # Create y_train_obs matching the split
-        y_train_obs = y_train_full.copy().astype(float)
-        # Apply mask logic: locations where mask_train==0 should be NaN
-        y_train_obs[mask_train == 0] = np.nan
-        
-        # 3. Correction / Pipeline
-        start_time = time.time()
-        
-        model = xgb.XGBClassifier(eval_metric='logloss', random_state=gen.seed)
-        # Or LogisticRegression for simpler interpretation
-        # model = LogisticRegression(random_state=gen.seed)
+    study = config["study"]
+    pop = PopulationConfig(**config["population"])
+    data = simulate_experiment(
+        pop,
+        policy,
+        n_train=config["samples"]["n_train"],
+        n_test=config["samples"]["n_test"],
+        base_seed=study["base_seed"],
+        replication=replication,
+    )
+    approval_rate = config["evaluation"]["approval_rate"]
+    learner_kind = config.get("learner", "logistic")
+    base = {
+        "cell_id": cell_id,
+        "replication": replication,
+        "rho": policy.rho,
+        "acceptance_rate": policy.acceptance_rate,
+        "exclusion_restriction": policy.exclusion_restriction,
+        "acceptance_rate_realised": data.meta["acceptance_rate_realised"],
+        "default_rate_accepted": data.meta["default_rate_accepted"],
+        "default_rate_rejected": data.meta["default_rate_rejected"],
+        "default_rate_test": data.meta["default_rate_test"],
+        "learner": learner_kind,
+    }
+    rows = [{**base, **evaluate_oracle(data, learner_kind, approval_rate)}]
+    for m_idx, spec in enumerate(config["methods"]):
+        rng = make_rng(study["base_seed"], replication, 1000 + cell_id, m_idx)
+        rows.append({**base, **evaluate_method(spec, data, learner_kind, approval_rate, rng)})
+    return rows
 
-        # Baseline: Oracle (Upper Bound) - Train on FULL labels
-        if method == 'oracle':
-            model.fit(X_train, y_train_full)
-            
-        elif method == 'complete_case':
-            # Drop missing
-            X_cc = X_train[mask_train == 1]
-            y_cc = y_train_obs[mask_train == 1]
-            model.fit(X_cc, y_cc)
-            
-        elif method == 'mean':
-            # Impute Y with Mode (Most Frequent)
-            # For binary classification, mean imputation of Y gives floats, 
-            # which standard classifiers treat as classes if not handled strictly.
-            # We use Mode here as a robust baseline.
-            y_filled = pd.Series(y_train_obs).fillna(pd.Series(y_train_obs).mode()[0]).values
-            model.fit(X_train, y_filled)
-            
-        elif method == 'zero_imputation':
-             # Assume all rejected are Repaid (0)
-            y_filled = y_train_obs.copy()
-            y_filled[np.isnan(y_filled)] = 0
-            model.fit(X_train, y_filled)
-            
-        elif method in ['mice', 'missforest']:
-            # These are usually feature imputers.
-            # Can we use them for Target Imputation?
-            # Yes, if we include Y in the matrix [X, y].
-            # Treat y as another column.
-            
-            # Combine X and y
-            train_data = np.column_stack((X_train, y_train_obs))
-            
-            if method == 'mice': # Fixed key name from 'rows' to 'mice'
-                imputer = MiceImputer(random_state=gen.seed)
-            else:
-                imputer = MissForestImputer(random_state=gen.seed)
-                
-            imputed_data = imputer.fit(train_data).transform(train_data)
-            
-            # Extract Y column
-            y_imputed = imputed_data[:, -1]
-            # Threshold to 0/1 to ensure binary labels
-            y_imputed = (y_imputed > 0.5).astype(int)
-            
-            model.fit(X_train, y_imputed)
-            
-        elif method == 'reweighting':
-            # IPW
-            ipw = InverseProbabilityWeighter()
-            ipw.fit(X_train, mask_train)
-            weights = ipw.get_weights(X_train)
-            
-            # Train only on accepted, but with weights?
-            # Standard IPW: Train on Observed, weigh by 1/P(Obs)
-            X_cc = X_train[mask_train == 1]
-            y_cc = y_train_obs[mask_train == 1]
-            w_cc = weights[mask_train == 1]
-            
-            model.fit(X_cc, y_cc, sample_weight=w_cc)
-            
-        elif method == 'augmentation':
-            aug = Augmentation(base_estimator=LogisticRegression()) # Base for labeling
-            aug.fit(X_train, y_train_obs, mask_train)
-            X_aug, y_aug = aug.transform(X_train, y_train_obs, mask_train)
-            
-            model.fit(X_aug, y_aug)
-            
-        else:
-            raise ValueError(f"Unknown method {method}")
-            
-        # 4. Evaluate
-        y_pred_proba = model.predict_proba(X_test)[:, 1]
-        metrics = self.evaluator.compute_metrics(y_test, y_pred_proba)
-        
-        metrics['method'] = method
-        metrics['mechanism'] = mechanism
-        metrics['missing_rate'] = missing_rate
-        metrics['time'] = time.time() - start_time
-        
-        self.results.append(metrics)
-        return metrics
 
-    def run_all_experiments(self):
-        """
-        Main loop.
-        """
-        mechanisms = ['mcar', 'mnar_rejection'] # Add MAR if needed
-        rates = [0.1, 0.3, 0.5]
-        methods = [
-            'oracle', 
-            'complete_case', 
-            'zero_imputation', 
-            'mean',
-            'mice',
-            'missforest',
-            'reweighting', 
-            'augmentation'
-        ]
-        
-        print(f"Starting experiments...")
-        for mech in mechanisms:
-            for rate in rates:
-                print(f"Running {mech} @ {rate}")
-                for method in methods:
-                    try:
-                        self.run_pipeline(mech, rate, method)
-                    except Exception as e:
-                        print(f"Failed {mech} {method}: {e}")
-                        
-        return pd.DataFrame(self.results)
+def run_study(config: Dict[str, Any], replications: Iterable[int] | None = None, verbose: int = 0) -> pd.DataFrame:
+    """Run every (cell, replication) pair, in parallel.
+
+    Parameters
+    ----------
+    config : dict
+        Parsed experiment configuration.
+    replications : iterable of int, optional
+        Replication indices; defaults to ``range(n_replications)``.
+    verbose : int
+        joblib verbosity.
+    """
+    cells = grid_cells(config)
+    reps = list(replications) if replications is not None else list(range(config["study"]["n_replications"]))
+    jobs = [(cid, cell, r) for cid, cell in enumerate(cells) for r in reps]
+    results = Parallel(n_jobs=config["study"].get("n_jobs", 1), verbose=verbose)(
+        delayed(run_replication)(config, cid, cell, r) for cid, cell, r in jobs
+    )
+    return pd.DataFrame([row for rows in results for row in rows])
+
+
+def save_results(df: pd.DataFrame, config: Dict[str, Any], tag: str | None = None) -> Path:
+    """Write results as CSV next to a copy of the config that produced them."""
+    out_dir = PROJECT_ROOT / config.get("output_dir", "results/raw")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = tag or datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = out_dir / f"{config['study']['name']}_{stamp}.csv"
+    df.to_csv(path, index=False)
+    with open(path.with_suffix(".yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+    return path
+
+
+def summarise(df: pd.DataFrame, metrics: Iterable[str] = ("auc", "brier", "ks", "bad_rate", "mean_pd")) -> pd.DataFrame:
+    """Mean and 95% confidence half-width per cell and method.
+
+    Besides the raw metric, two *paired* differences are reported, computed
+    within each replication before averaging (so shared noise cancels):
+
+    * ``<metric>_vs_oracle``: method minus Oracle (the cost of missing labels);
+    * ``<metric>_vs_accepts``: method minus accepts-only (the gain from reject
+      inference; positive is better for AUC and KS, negative for Brier and
+      bad rate).
+
+    Half-widths use the normal approximation 1.96 * sd / sqrt(n_reps).
+    """
+    metrics = list(metrics)
+    keys = ["rho", "acceptance_rate", "exclusion_restriction", "method"]
+    cell_rep = ["rho", "acceptance_rate", "exclusion_restriction", "replication"]
+
+    paired = df.copy()
+    for ref_name, suffix in ((ORACLE, "vs_oracle"), ("accepts_only", "vs_accepts")):
+        ref = df[df["method"] == ref_name][cell_rep + metrics]
+        if ref.empty:
+            continue
+        ref = ref.rename(columns={m: f"{m}__ref" for m in metrics})
+        paired = paired.merge(ref, on=cell_rep, how="left")
+        for m in metrics:
+            paired[f"{m}_{suffix}"] = paired[m] - paired[f"{m}__ref"]
+        paired = paired.drop(columns=[f"{m}__ref" for m in metrics])
+
+    value_cols = [c for c in paired.columns if any(c == m or c.startswith(f"{m}_vs_") for m in metrics)]
+    g = paired.groupby(keys)
+    n = g.size()
+    out = g[value_cols].mean().add_suffix("_mean")
+    half = (1.96 * g[value_cols].std(ddof=1)).div(np.sqrt(n), axis=0).add_suffix("_ci95")
+    out = out.join(half)
+    out["n_reps"] = n
+    return out.reset_index()
