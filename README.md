@@ -38,9 +38,7 @@ inference methods in a controlled simulation where the full population
 
 ### Dependencies
 
-Python 3.10 or newer. Libraries: numpy, pandas, scipy, scikit-learn,
-matplotlib, pyyaml, joblib, pytest (see `environment.yaml` /
-`requirements.txt`).
+Python 3.11 (3.10-3.12 also work) and the packages in `requirements.txt`.
 
 ### Setup
 
@@ -50,14 +48,11 @@ git clone https://github.com/boraegz/MSc_Thesis_Missing_Data.git
 cd MSc_Thesis_Missing_Data
 ```
 
-2. Create and activate the environment (micromamba or conda)
+2. Create a virtual environment with Python 3.11 and install the requirements
 ```bash
-micromamba create -f environment.yaml
-micromamba activate thesis_env
-```
-or with pip
-```bash
-python -m venv .venv && source .venv/bin/activate
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -108,7 +103,7 @@ Main figures (written by `make_figures.py` to `results/figures/`):
 
 ```bash
 ├── README.md
-├── environment.yaml / requirements.txt       -- dependencies
+├── requirements.txt                          -- dependencies (Python 3.11)
 ├── configs/
 │   └── experiment_config.yaml                -- simulation grid, methods, seeds
 ├── run_experiments.py                        -- runs the study, saves results
@@ -124,6 +119,6 @@ Main figures (written by `make_figures.py` to `results/figures/`):
 │   ├── experiments.py                        -- grid x replications runner, summary
 │   └── utils.py                              -- config loading, seeding
 ├── tests/                                    -- pytest suite (incl. leakage tests)
-├── notebooks/archive/                        -- earlier exploratory notebooks (old API)
+├── notebooks/archive/                        -- earlier notebooks; use the old code, do not run
 └── results/                                  -- raw results (git-ignored) and figures
 ```
